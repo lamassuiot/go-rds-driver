@@ -2,6 +2,7 @@ package rds
 
 import (
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/rdsdata"
 	"github.com/aws/aws-sdk-go-v2/service/rdsdata/types"
+	"github.com/google/uuid"
 )
 
 // FieldConverter is a function that converts the passed result row field into the expected type.
@@ -52,6 +54,22 @@ func ConvertNamedValue(arg driver.NamedValue) (value types.SqlParameter, err err
 	}
 	switch t := arg.Value.(type) {
 	case string:
+		if isValidJSON(t) {
+			value = types.SqlParameter{
+				Name:     &name,
+				TypeHint: types.TypeHintJson,
+				Value:    &types.FieldMemberStringValue{Value: t},
+			}
+			return
+		}
+		if isUUID(t) {
+			value = types.SqlParameter{
+				Name:     &name,
+				TypeHint: types.TypeHintUuid,
+				Value:    &types.FieldMemberStringValue{Value: t},
+			}
+			return
+		}
 		value = types.SqlParameter{
 			Name:  &name,
 			Value: &types.FieldMemberStringValue{Value: t},
@@ -153,6 +171,26 @@ func ConvertNamedValue(arg driver.NamedValue) (value types.SqlParameter, err err
 		return
 	}
 	return
+}
+
+func isValidJSON(t string) bool {
+	var v any
+	if err := json.Unmarshal([]byte(t), &v); err != nil {
+		return false
+	}
+
+	switch v.(type) {
+	// Check if the unmarshaled value is a JSON object or array
+	case map[string]any, []any:
+		return true
+	default:
+		return false
+	}
+}
+
+func isUUID(s string) bool {
+	_, err := uuid.Parse(s)
+	return err == nil
 }
 
 func isNil(i interface{}) bool {
