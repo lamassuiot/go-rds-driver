@@ -67,4 +67,4 @@ checks: test vet lint gocritic sec vulncheck
 .PHONY: update
 update:
 	go get -t -u ./...
-	go mod tidy -compat=1.25
+	go mod tidy -compat=1.26.2

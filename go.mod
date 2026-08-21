@@ -1,6 +1,6 @@
 module github.com/krotscheck/go-rds-driver
 
-go 1.25
+go 1.26.2
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.40.0
@@ -9,6 +9,7 @@ require (
 	github.com/aws/smithy-go v1.23.2
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/golang/mock v1.6.0
+	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v4 v4.18.3
 	github.com/smartystreets/goconvey v1.8.1
 )
