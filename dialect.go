@@ -2,7 +2,6 @@ package rds
 
 import (
 	"database/sql/driver"
-	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
@@ -10,11 +9,94 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/rdsdata"
 	"github.com/aws/aws-sdk-go-v2/service/rdsdata/types"
-	"github.com/google/uuid"
 )
 
 // FieldConverter is a function that converts the passed result row field into the expected type.
 type FieldConverter func(field types.Field) (interface{}, error)
+
+// TypeHinter is implemented by values that explicitly provide an RDS Data API type hint.
+type TypeHinter interface {
+	driver.Valuer
+	TypeHint() types.TypeHint
+}
+
+// JSON is a string value that explicitly requests the RDS Data API JSON type hint.
+type JSON string
+
+// Value implements driver.Valuer.
+func (value JSON) Value() (driver.Value, error) {
+	return string(value), nil
+}
+
+// TypeHint returns the RDS Data API JSON type hint.
+func (JSON) TypeHint() types.TypeHint {
+	return types.TypeHintJson
+}
+
+// UUID is a string value that explicitly requests the RDS Data API UUID type hint.
+type UUID string
+
+// Value implements driver.Valuer.
+func (value UUID) Value() (driver.Value, error) {
+	return string(value), nil
+}
+
+// TypeHint returns the RDS Data API UUID type hint.
+func (UUID) TypeHint() types.TypeHint {
+	return types.TypeHintUuid
+}
+
+// Date is a string value that explicitly requests the RDS Data API DATE type hint.
+type Date string
+
+// Value implements driver.Valuer.
+func (value Date) Value() (driver.Value, error) {
+	return string(value), nil
+}
+
+// TypeHint returns the RDS Data API DATE type hint.
+func (Date) TypeHint() types.TypeHint {
+	return types.TypeHintDate
+}
+
+// Decimal is a string value that explicitly requests the RDS Data API DECIMAL type hint.
+type Decimal string
+
+// Value implements driver.Valuer.
+func (value Decimal) Value() (driver.Value, error) {
+	return string(value), nil
+}
+
+// TypeHint returns the RDS Data API DECIMAL type hint.
+func (Decimal) TypeHint() types.TypeHint {
+	return types.TypeHintDecimal
+}
+
+// Time is a string value that explicitly requests the RDS Data API TIME type hint.
+type Time string
+
+// Value implements driver.Valuer.
+func (value Time) Value() (driver.Value, error) {
+	return string(value), nil
+}
+
+// TypeHint returns the RDS Data API TIME type hint.
+func (Time) TypeHint() types.TypeHint {
+	return types.TypeHintTime
+}
+
+// Timestamp is a string value that explicitly requests the RDS Data API TIMESTAMP type hint.
+type Timestamp string
+
+// Value implements driver.Valuer.
+func (value Timestamp) Value() (driver.Value, error) {
+	return string(value), nil
+}
+
+// TypeHint returns the RDS Data API TIMESTAMP type hint.
+func (Timestamp) TypeHint() types.TypeHint {
+	return types.TypeHintTimestamp
+}
 
 // Dialect is an interface that encapsulates a particular languages' eccentricities
 type Dialect interface {
@@ -52,24 +134,24 @@ func ConvertNamedValue(arg driver.NamedValue) (value types.SqlParameter, err err
 		}
 		return
 	}
+	var typeHint types.TypeHint
+	if hinted, ok := arg.Value.(TypeHinter); ok {
+		typeHint = hinted.TypeHint()
+		arg.Value, err = hinted.Value()
+		if err != nil {
+			return
+		}
+		if isNil(arg.Value) {
+			value = types.SqlParameter{
+				Name:     &name,
+				TypeHint: typeHint,
+				Value:    &types.FieldMemberIsNull{Value: true},
+			}
+			return
+		}
+	}
 	switch t := arg.Value.(type) {
 	case string:
-		if isValidJSON(t) {
-			value = types.SqlParameter{
-				Name:     &name,
-				TypeHint: types.TypeHintJson,
-				Value:    &types.FieldMemberStringValue{Value: t},
-			}
-			return
-		}
-		if isUUID(t) {
-			value = types.SqlParameter{
-				Name:     &name,
-				TypeHint: types.TypeHintUuid,
-				Value:    &types.FieldMemberStringValue{Value: t},
-			}
-			return
-		}
 		value = types.SqlParameter{
 			Name:  &name,
 			Value: &types.FieldMemberStringValue{Value: t},
@@ -158,7 +240,7 @@ func ConvertNamedValue(arg driver.NamedValue) (value types.SqlParameter, err err
 			Name:     &name,
 			TypeHint: types.TypeHintTimestamp,
 			Value: &types.FieldMemberStringValue{
-				Value: t.Format("2006-01-02 15:04:05.999999"),
+				Value: t.Format("2006-01-02 15:04:05.999"),
 			},
 		}
 	case nil:
@@ -170,27 +252,10 @@ func ConvertNamedValue(arg driver.NamedValue) (value types.SqlParameter, err err
 		err = fmt.Errorf("%s is unsupported type: %#v", name, arg.Value)
 		return
 	}
+	if typeHint != "" {
+		value.TypeHint = typeHint
+	}
 	return
-}
-
-func isValidJSON(t string) bool {
-	var v any
-	if err := json.Unmarshal([]byte(t), &v); err != nil {
-		return false
-	}
-
-	switch v.(type) {
-	// Check if the unmarshaled value is a JSON object or array
-	case map[string]any, []any:
-		return true
-	default:
-		return false
-	}
-}
-
-func isUUID(s string) bool {
-	_, err := uuid.Parse(s)
-	return err == nil
 }
 
 func isNil(i interface{}) bool {

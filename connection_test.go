@@ -4,11 +4,57 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"github.com/aws/aws-sdk-go-v2/service/rdsdata"
+	"github.com/aws/aws-sdk-go-v2/service/rdsdata/types"
 	"github.com/golang/mock/gomock"
 	"github.com/krotscheck/go-rds-driver"
 	. "github.com/smartystreets/goconvey/convey"
 	"testing"
 )
+
+func Test_ExplicitTypeHintsThroughDatabaseSQL(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockRDS := NewMockAWSClientInterface(ctrl)
+	mockRDS.EXPECT().
+		ExecuteStatement(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *rdsdata.ExecuteStatementInput, _ ...func(*rdsdata.Options)) (*rdsdata.ExecuteStatementOutput, error) {
+			if *input.Sql == "/* wakeup */ SELECT VERSION()" {
+				return &rdsdata.ExecuteStatementOutput{
+					Records: [][]types.Field{{
+						&types.FieldMemberStringValue{Value: "PostgreSQL 13.12"},
+					}},
+				}, nil
+			}
+			if len(input.Parameters) != 3 {
+				t.Fatalf("expected 3 parameters, got %d", len(input.Parameters))
+			}
+			if input.Parameters[0].TypeHint != types.TypeHintJson {
+				t.Errorf("expected JSON type hint, got %q", input.Parameters[0].TypeHint)
+			}
+			if input.Parameters[1].TypeHint != types.TypeHintUuid {
+				t.Errorf("expected UUID type hint, got %q", input.Parameters[1].TypeHint)
+			}
+			if input.Parameters[2].TypeHint != "" {
+				t.Errorf("expected no type hint for ordinary string, got %q", input.Parameters[2].TypeHint)
+			}
+			return &rdsdata.ExecuteStatementOutput{}, nil
+		}).
+		Times(2)
+
+	conf := rds.NewConfig("resourceARN", "secretARN", "database", "region")
+	db := sql.OpenDB(rds.NewConnector(rds.NewDriver(), mockRDS, conf))
+	defer db.Close()
+
+	_, err := db.ExecContext(context.Background(),
+		`INSERT INTO example (metadata, id, description) VALUES ($1, $2, $3)`,
+		rds.JSON(`{"mode":"strict"}`),
+		rds.UUID("550e8400-e29b-41d4-a716-446655440000"),
+		`{"this":"is text"}`,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
 
 func Test_Connection(t *testing.T) {
 	d := rds.NewDriver()

@@ -148,6 +148,10 @@ func (d *DialectPostgres) IsIsolationLevelSupported(level driver.IsolationLevel)
 
 // GetTransactionSetupQuery returns the query to set up the transaction.
 func (d *DialectPostgres) GetTransactionSetupQuery(opts driver.TxOptions) string {
+	if sql.IsolationLevel(opts.Isolation) == sql.LevelDefault && !opts.ReadOnly {
+		return ""
+	}
+
 	var clause []string
 	if sql.IsolationLevel(opts.Isolation) != sql.LevelDefault {
 		clause = append(clause, fmt.Sprintf("ISOLATION LEVEL %s", sql.IsolationLevel(opts.Isolation).String()))

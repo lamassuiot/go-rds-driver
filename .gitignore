@@ -1,4 +1,5 @@
 *_mocks_test.go
+!client_mocks_test.go
 env.sh
 reports
 terraform/.terraform.lock.hcl

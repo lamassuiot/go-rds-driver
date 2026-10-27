@@ -85,6 +85,31 @@ The RDS Postgres version supported is 13.12. Driver parity is tested using `gith
 | `TIMESTAMPTZ`    | The RDS Data API [always returns `TIMESTAMPTZ` values converted to UTC](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/data-api-operations.html), regardless of the original timezone. |
 | Complex Types    | Postgres complex types - in short anything in [section 8.8](https://www.postgresql.org/docs/10/datatype.html) and after, is not supported. |
 
+### Explicit parameter type hints
+
+The Data API requires type hints for some string parameters, and the driver cannot determine a
+string's intended database type from its contents. Plain strings are therefore sent without a
+hint, even when they look like JSON, a UUID, a date, or a decimal. Use the corresponding explicit
+value type to request a hint:
+
+```go
+db.ExecContext(ctx, `INSERT INTO example (metadata, id, description) VALUES ($1, $2, $3)`,
+	rds.JSON(`{"mode":"strict"}`),
+	rds.UUID("550e8400-e29b-41d4-a716-446655440000"),
+	`{"this":"is text"}`,
+)
+
+db.ExecContext(ctx, `INSERT INTO measurements (day, amount, starts_at, recorded_at) VALUES ($1, $2, $3, $4)`,
+	rds.Date("2026-10-27"),
+	rds.Decimal("12345678901234567890.123400"),
+	rds.Time("09:45:00.123"),
+	rds.Timestamp("2026-10-27 09:45:00.123"),
+)
+```
+
+`DATE` values use `YYYY-MM-DD`; `TIME` uses `HH:MM:SS[.FFF]`; `TIMESTAMP` uses
+`YYYY-MM-DD HH:MM:SS[.FFF]`. `DECIMAL` values are sent as strings to preserve their precision.
+
 ## Options
 This driver supports a variety of configuration options in the DSN, as follows:
 
@@ -131,6 +156,38 @@ conf := postgres.Config{
 }
 dialector := postgres.New(conf)
 ```
+
+Install the optional type-hint plugin on every GORM connection that uses this driver. It uses
+existing schema metadata to add hints to supported values across GORM create, read, update, and
+delete operations:
+
+- `Create` values and `Update` assignments for fields declared with supported database types, such
+  as `type:date`, `type:decimal(30,6)`, `type:time`, `type:timestamp`, and `type:uuid`.
+- Structured equality (`=`) predicates in reads, updates, and deletes when GORM can associate the
+  predicate with a schema field.
+- `serializer:json` fields, without changing their Go types or serializer tags.
+
+The plugin does not infer hints from values or arbitrary SQL. Raw SQL and predicate forms that do
+not expose schema field metadata need an explicit value type such as `rds.UUID(value)`, or an SQL
+cast where appropriate.
+
+```go
+db, err := gorm.Open(postgres.New(postgres.Config{
+	DriverName: rds.DRIVERNAME,
+	DSN:        dsn,
+}), &gorm.Config{})
+if err != nil {
+	return err
+}
+
+if err := db.Use(rdsgorm.NewTypeHintPlugin()); err != nil {
+	return err
+}
+```
+
+Import the plugin as `rdsgorm "github.com/krotscheck/go-rds-driver/gorm"`. Register it only on
+GORM connections using the RDS Data API driver. Other GORM connections keep their existing
+serialization behavior.
 
 ## Running the tests
 
