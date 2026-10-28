@@ -261,7 +261,16 @@ func applyTypeHints(args []interface{}, cells []createCell) ([]interface{}, erro
 
 	argIndex := 0
 	for i := range cells {
-		if cells[i].typeHint != "" {
+		bindCount := 1
+		if cells[i].typeHint != "" || hasLaterHint[i] {
+			var err error
+			bindCount, err = bindVarCount(cells[i].value)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if cells[i].typeHint != "" && bindCount > 0 {
 			if argIndex >= len(args) {
 				return nil, fmt.Errorf("RDS type hint %s: no bound parameter for field", cells[i].typeHint)
 			}
@@ -273,11 +282,7 @@ func applyTypeHints(args []interface{}, cells []createCell) ([]interface{}, erro
 		}
 
 		if hasLaterHint[i] {
-			count, err := bindVarCount(cells[i].value)
-			if err != nil {
-				return nil, err
-			}
-			argIndex += count
+			argIndex += bindCount
 		}
 	}
 	return args, nil
@@ -503,6 +508,9 @@ func bindVarCount(value interface{}) (int, error) {
 		return 1, nil
 	}
 	if reflected.Kind() == reflect.Slice || reflected.Kind() == reflect.Array {
+		if reflected.Len() == 0 {
+			return 0, nil
+		}
 		if reflected.Type().Elem().Kind() == reflect.Uint8 {
 			return 1, nil
 		}

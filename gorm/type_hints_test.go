@@ -42,6 +42,16 @@ type rawJSONRecord struct {
 	Rules json.RawMessage `gorm:"type:jsonb;not null"`
 }
 
+type rawJSONPolicyRecord struct {
+	ID          string          `gorm:"primaryKey"`
+	Name        string          `gorm:"size:255;not null"`
+	Description string          `gorm:"size:1024"`
+	Rules       json.RawMessage `gorm:"type:jsonb;not null"`
+	HTTPRules   json.RawMessage `gorm:"column:http_rules;type:jsonb"`
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 func TestCreateAddsJSONHintOnlyToJSONSerializedFields(t *testing.T) {
 	pool := &captureConnPool{}
 	db := newTestDB(t, pool)
@@ -132,6 +142,52 @@ func TestTypeHintPluginSupportsJSONRawMessage(t *testing.T) {
 		if !found {
 			t.Fatal("expected JSON RawMessage parameter to carry the RDS JSON type hint")
 		}
+	}
+}
+
+func TestTypeHintPluginDoesNotShiftHintsForNullJSONFields(t *testing.T) {
+	pool := &captureConnPool{}
+	db := newTestDB(t, pool)
+	if err := db.Use(rdsgorm.NewTypeHintPlugin()); err != nil {
+		t.Fatal(err)
+	}
+
+	model := rawJSONPolicyRecord{
+		ID:        "policy-1",
+		Name:      "Policy",
+		Rules:     json.RawMessage(`[{"namespace":"pki","actions":["read"]}]`),
+		CreatedAt: time.Date(2026, 10, 28, 10, 3, 8, 570735911, time.FixedZone("UTC+1", 3600)),
+		UpdatedAt: time.Date(2026, 10, 28, 10, 3, 8, 570000000, time.FixedZone("UTC+1", 3600)),
+	}
+	if err := db.Create(&model).Error; err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if len(pool.execArgs) != 1 {
+		t.Fatalf("expected one ExecContext call, got %d", len(pool.execArgs))
+	}
+
+	jsonHintCount := 0
+	timestampCount := 0
+	for _, arg := range pool.execArgs[0] {
+		if hinted, ok := arg.(rds.JSON); ok {
+			jsonHintCount++
+			value, err := hinted.Value()
+			if err != nil {
+				t.Fatalf("read JSON parameter: %v", err)
+			}
+			if value != string(model.Rules) {
+				t.Fatalf("JSON parameter = %q, want rules JSON %q", value, model.Rules)
+			}
+		}
+		if _, ok := arg.(time.Time); ok {
+			timestampCount++
+		}
+	}
+	if jsonHintCount != 1 {
+		t.Fatalf("expected only the rules value to have a JSON hint, got %d JSON hints", jsonHintCount)
+	}
+	if timestampCount != 2 {
+		t.Fatalf("expected both timestamps to remain time.Time values, got %d", timestampCount)
 	}
 }
 
