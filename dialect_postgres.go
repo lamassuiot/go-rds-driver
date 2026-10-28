@@ -72,6 +72,8 @@ func (d *DialectPostgres) MigrateQuery(query string, args []driver.NamedValue) (
 // GetFieldConverter knows how to parse response data.
 func (d *DialectPostgres) GetFieldConverter(columnType string) FieldConverter {
 	switch strings.ToLower(columnType) {
+	case "json", "jsonb":
+		return convertJSONField
 	case "numeric":
 		return func(field types.Field) (interface{}, error) {
 			return strconv.ParseFloat(field.(*types.FieldMemberStringValue).Value, 64)

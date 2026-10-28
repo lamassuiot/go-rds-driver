@@ -269,6 +269,11 @@ func isNil(i interface{}) bool {
 	return false
 }
 
+// convertJSONField returns bytes so database/sql can scan JSON into named byte-slice types.
+func convertJSONField(field types.Field) (interface{}, error) {
+	return []byte(field.(*types.FieldMemberStringValue).Value), nil
+}
+
 // ConvertDefaults handles all types that can be returned directly without additional conversion.
 func ConvertDefaults() func(field types.Field) (value interface{}, err error) {
 	// For unknown field types (like custom ENUM types) we fall back to the

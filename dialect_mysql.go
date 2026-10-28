@@ -76,6 +76,8 @@ func (d *DialectMySQL) MigrateQuery(query string, args []driver.NamedValue) (*rd
 // GetFieldConverter knows how to parse column results.
 func (d *DialectMySQL) GetFieldConverter(columnType string) FieldConverter {
 	switch columnType {
+	case "JSON", "json":
+		return convertJSONField
 	case "TINYINT UNSIGNED":
 		fallthrough
 	case "SMALLINT UNSIGNED":

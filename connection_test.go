@@ -1,9 +1,12 @@
 package rds_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rdsdata"
 	"github.com/aws/aws-sdk-go-v2/service/rdsdata/types"
 	"github.com/golang/mock/gomock"
@@ -53,6 +56,57 @@ func Test_ExplicitTypeHintsThroughDatabaseSQL(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func Test_JSONColumnsScanIntoRawMessage(t *testing.T) {
+	const document = `{"role":"admin"}`
+
+	for _, testCase := range []struct {
+		name       string
+		version    string
+		columnType string
+	}{
+		{name: "PostgreSQL JSONB", version: "PostgreSQL 13.12", columnType: "jsonb"},
+		{name: "MySQL JSON", version: "MySQL 8.0.36", columnType: "JSON"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockRDS := NewMockAWSClientInterface(ctrl)
+			mockRDS.EXPECT().
+				ExecuteStatement(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, input *rdsdata.ExecuteStatementInput, _ ...func(*rdsdata.Options)) (*rdsdata.ExecuteStatementOutput, error) {
+					if *input.Sql == "/* wakeup */ SELECT VERSION()" {
+						return &rdsdata.ExecuteStatementOutput{
+							Records: [][]types.Field{{
+								&types.FieldMemberStringValue{Value: testCase.version},
+							}},
+						}, nil
+					}
+					return &rdsdata.ExecuteStatementOutput{
+						ColumnMetadata: []types.ColumnMetadata{{
+							Label:    aws.String("rules"),
+							TypeName: aws.String(testCase.columnType),
+						}},
+						Records: [][]types.Field{{
+							&types.FieldMemberStringValue{Value: document},
+						}},
+					}, nil
+				}).
+				Times(2)
+
+			conf := rds.NewConfig("resourceARN", "secretARN", "database", "region")
+			db := sql.OpenDB(rds.NewConnector(rds.NewDriver(), mockRDS, conf))
+			defer db.Close()
+
+			var got json.RawMessage
+			if err := db.QueryRowContext(context.Background(), "SELECT rules").Scan(&got); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, []byte(document)) {
+				t.Fatalf("scanned JSON = %q, want %q", got, document)
+			}
+		})
 	}
 }
 
