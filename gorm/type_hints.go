@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -445,25 +446,34 @@ func jsonHintValue(value interface{}) (interface{}, error) {
 	}
 
 	valuer, ok := value.(driver.Valuer)
-	if !ok {
-		return nil, fmt.Errorf("JSON-serialized field value %T does not implement driver.Valuer", value)
-	}
-	serialized, err := valuer.Value()
-	if err != nil {
-		return nil, err
-	}
-	if serialized == nil {
-		return nil, nil
+	if ok {
+		serialized, err := valuer.Value()
+		if err != nil {
+			return nil, err
+		}
+		if serialized == nil {
+			return nil, nil
+		}
+
+		switch serialized := serialized.(type) {
+		case string:
+			return rds.JSON(serialized), nil
+		case []byte:
+			return rds.JSON(string(serialized)), nil
+		default:
+			return nil, fmt.Errorf("JSON serializer returned unsupported value %T", serialized)
+		}
 	}
 
-	switch value := serialized.(type) {
-	case string:
-		return rds.JSON(value), nil
-	case []byte:
-		return rds.JSON(string(value)), nil
-	default:
-		return nil, fmt.Errorf("JSON serializer returned unsupported value %T", serialized)
+	if marshaler, ok := value.(json.Marshaler); ok {
+		serialized, err := marshaler.MarshalJSON()
+		if err != nil {
+			return nil, fmt.Errorf("marshal JSON value %T: %w", value, err)
+		}
+		return rds.JSON(string(serialized)), nil
 	}
+
+	return nil, fmt.Errorf("JSON-serialized field value %T does not implement driver.Valuer or json.Marshaler", value)
 }
 
 func bindVarCount(value interface{}) (int, error) {

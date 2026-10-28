@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"testing"
@@ -34,6 +35,11 @@ type typedRecord struct {
 	OccurredAt  time.Time `gorm:"type:timestamp"`
 	ExternalID  string    `gorm:"type:uuid"`
 	Description string    `gorm:"type:text"`
+}
+
+type rawJSONRecord struct {
+	ID    int             `gorm:"primaryKey"`
+	Rules json.RawMessage `gorm:"type:jsonb;not null"`
 }
 
 func TestCreateAddsJSONHintOnlyToJSONSerializedFields(t *testing.T) {
@@ -84,6 +90,49 @@ func TestUpdateAddsJSONHintToSerializedField(t *testing.T) {
 		t.Fatalf("expected 3 bound values, got %d", len(args))
 	}
 	assertJSONAndTextArgs(t, args, `{"mode":"strict"}`, model.Description)
+}
+
+func TestTypeHintPluginSupportsJSONRawMessage(t *testing.T) {
+	pool := &captureConnPool{}
+	db := newTestDB(t, pool)
+	if err := db.Use(rdsgorm.NewTypeHintPlugin()); err != nil {
+		t.Fatal(err)
+	}
+
+	model := rawJSONRecord{
+		ID:    1,
+		Rules: json.RawMessage(`{"namespace":"pki","actions":["read"]}`),
+	}
+	if err := db.Create(&model).Error; err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if err := db.Model(&model).Where("id = ?", model.ID).Select("Rules").Updates(&model).Error; err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+	if len(pool.execArgs) != 2 {
+		t.Fatalf("expected create and update calls, got %d", len(pool.execArgs))
+	}
+
+	for _, args := range pool.execArgs {
+		found := false
+		for _, arg := range args {
+			hinted, ok := arg.(rds.JSON)
+			if !ok {
+				continue
+			}
+			value, err := hinted.Value()
+			if err != nil {
+				t.Fatalf("read JSON parameter: %v", err)
+			}
+			if value != string(model.Rules) {
+				t.Fatalf("JSON parameter = %q, want %q", value, model.Rules)
+			}
+			found = true
+		}
+		if !found {
+			t.Fatal("expected JSON RawMessage parameter to carry the RDS JSON type hint")
+		}
+	}
 }
 
 func TestTypeHintPluginMapsDeclaredTypesForCreateAndUpdate(t *testing.T) {
