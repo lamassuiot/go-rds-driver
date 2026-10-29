@@ -123,3 +123,16 @@ func TestPostgresDefaultTransactionDoesNotRequireSetupQuery(t *testing.T) {
 		t.Fatalf("default transaction should not require setup SQL, got %q", query)
 	}
 }
+
+func TestPostgresNumericFieldPreservesPrecision(t *testing.T) {
+	const numericValue = "900719925474099312345.1234"
+	dialect := rds.NewPostgres(rds.NewConfig("resource", "secret", "database", "region"))
+
+	got, err := dialect.GetFieldConverter("NUMERIC")(&types.FieldMemberStringValue{Value: numericValue})
+	if err != nil {
+		t.Fatalf("convert NUMERIC field: %v", err)
+	}
+	if got != numericValue {
+		t.Fatalf("converted NUMERIC value = %#v, want exact string %q", got, numericValue)
+	}
+}

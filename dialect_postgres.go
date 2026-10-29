@@ -76,7 +76,7 @@ func (d *DialectPostgres) GetFieldConverter(columnType string) FieldConverter {
 		return convertJSONField
 	case "numeric":
 		return func(field types.Field) (interface{}, error) {
-			return strconv.ParseFloat(field.(*types.FieldMemberStringValue).Value, 64)
+			return field.(*types.FieldMemberStringValue).Value, nil
 		}
 	case "date":
 		return func(field types.Field) (interface{}, error) {
